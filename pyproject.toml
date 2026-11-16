@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jc-deal-screener"
+version = "1.0.0"
+description = "Jersey City flip deal screener — buy box, pro-forma, comps, alerting"
+requires-python = ">=3.9"
+dependencies = [
+    "PyYAML>=6.0",
+    "requests>=2.31",
+    "openpyxl>=3.1",
+]
+
+[project.scripts]
+jcscreen = "jcscreener.cli:main"
+
+[tool.setuptools]
+packages = ["jcscreener"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,218 @@
+# =============================================================================
+#  Jersey City Deal Screener — configuration
+# =============================================================================
+#  Everything you would normally want to tune lives in this file. The code
+#  reads it at startup; you should not need to edit Python to change strategy.
+#
+#  Edit freely, then re-run.  `jcscreen scan --explain` prints how every
+#  number below flowed into a given deal's verdict.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# BUY BOX — hard filters. A listing failing any of these is dropped before the
+# pro-forma even runs (saves API calls).
+# -----------------------------------------------------------------------------
+buy_box:
+  name: "JC Phase 1 — house hack, 2-4 unit"
+
+  # Target ZIPs. Jersey City Heights = 07307, Journal Square = 07306,
+  # Bergen-Lafayette = 07305, Greenville = 07305/07304, Downtown = 07302/07310.
+  zips: ["07307", "07306", "07305", "07304"]
+
+  # Optional neighborhood allow/deny by name (case-insensitive substring match).
+  # Leave empty to ignore. Useful once you refine zip -> neighborhood mapping.
+  neighborhoods_include: []
+  neighborhoods_exclude: []
+
+  price_min: 350000
+  price_max: 900000
+
+  units_min: 2          # house-hack strategy: 2-4 units, owner-occupied financing
+  units_max: 4
+
+  beds_min: 3
+  baths_min: 1.0
+
+  sqft_min: 1200
+  sqft_max: 4500
+
+  year_built_min: 1880  # JC has a LOT of pre-1900 stock; lead/knob-and-tube risk
+  max_days_on_market: 365
+
+  # Drop listings whose status is not one of these.
+  statuses: ["Active", "For Sale", "Price Change", "Back on Market"]
+
+  # Hard exclusions by keyword anywhere in the description/remarks.
+  # These are the ones that kill a deal outright for an owner-occupied entry.
+  exclude_keywords:
+    - "cash only"
+    - "tenant occupied"          # NJ Anti-Eviction Act: you cannot simply remove
+    - "occupied - do not disturb"
+    - "no interior access"
+    - "auction"
+    - "short sale"
+    - "as-is, no repairs"
+
+  # Flags that do not disqualify, but get surfaced as risks on the report.
+  risk_keywords:
+    - "estate sale"
+    - "needs tlc"
+    - "handyman"
+    - "gut"
+    - "fire damage"
+    - "water damage"
+    - "oil tank"                 # UST remediation is a real JC cost
+    - "knob and tube"
+    - "rent controlled"          # JC rent leveling ordinance
+    - "violations"
+    - "certificate of occupancy"
+
+# -----------------------------------------------------------------------------
+# DEAL MATH — the thresholds that decide STRONG / NEGOTIATE / PASS.
+# -----------------------------------------------------------------------------
+underwriting:
+  # Classic flip rule: max allowable offer = (ARV * mao_arv_factor) - rehab.
+  # 0.70 is the textbook number; 0.75 is realistic in a tight market like JC
+  # where 70% deals essentially do not exist on the MLS.
+  mao_arv_factor: 0.75
+
+  min_profit_dollars: 45000     # absolute floor — below this, not worth the risk
+  min_roi_pct: 15.0             # profit / total cash in
+  min_margin_pct: 12.0          # profit / ARV
+
+  # Hold period drives carrying cost. Be honest here: JC permit timelines are
+  # slow. 6 months is optimistic for anything structural.
+  hold_months: 7
+
+  # How far above MAO you are still willing to open a negotiation.
+  negotiate_band_pct: 12.0      # list <= MAO * 1.12 -> NEGOTIATE, else PASS
+
+  # Confidence handling on the ARV estimate. RentCast AVM returns a range;
+  # we underwrite off the conservative end by default.
+  arv_mode: "conservative"      # one of: conservative | midpoint | optimistic
+  arv_haircut_pct: 3.0          # extra safety shave applied after arv_mode
+
+# -----------------------------------------------------------------------------
+# REHAB — $/sqft tiers. Tune these as you get real contractor bids; this is the
+# single biggest source of error in flip underwriting.
+# -----------------------------------------------------------------------------
+rehab:
+  default_tier: "moderate"
+  tiers:
+    cosmetic: 55      # paint, floors, fixtures, kitchen refresh
+    moderate: 95      # kitchens + baths, some systems, minor layout
+    heavy: 145        # full systems, roof, windows, layout changes
+    gut: 210          # down to studs, new everything
+
+  # Per-unit adders for multifamily — every extra kitchen/bath is real money.
+  per_extra_unit: 28000
+
+  # Line items triggered by risk keywords (added on top of the $/sqft number).
+  contingency_pct: 12.0
+  adders:
+    "oil tank": 14000           # UST removal + soil testing + NJDEP closure
+    "knob and tube": 18000
+    "fire damage": 40000
+    "water damage": 15000
+    "violations": 8000
+
+# -----------------------------------------------------------------------------
+# COSTS — New Jersey / Hudson County / Jersey City specific.
+#
+# Verified Sept 2026:
+#  * Realty Transfer Fee schedule and the graduated "mansion tax" brackets are
+#    hard-coded in jcscreener/njfees.py straight from the NJ Division of
+#    Taxation schedule. As of the 2025 statutory change the SELLER is
+#    responsible for both the RTF and the Graduated Percent Fee.
+#  * Jersey City 2025 general tax rate: 2.335 per $100 of ASSESSED value.
+#    2026 equalization ratio: 72.82% -> effective ~1.70% of market value.
+#    Confirm against the actual tax card for any specific property; abatements
+#    and recent reassessments move this a lot.
+# -----------------------------------------------------------------------------
+costs:
+  # --- Acquisition (you are the buyer) ---
+  buyer_attorney: 2000          # NJ is an attorney-review state. Non-negotiable.
+  title_insurance_pct: 0.55     # % of purchase price, owner's policy
+  title_search_and_settlement: 1400
+  inspection: 1200              # + 650 if sewer scope / UST sweep
+  survey: 900
+  recording_fees: 350
+  # NJ's Graduated Percent Fee ("mansion tax") moved to the seller. Set this
+  # true only if your title company is still quoting it buyer-side on a deal.
+  buyer_pays_mansion_tax: false
+
+  # --- Financing ---
+  # For the house-hack entry this is an owner-occupied loan; for later straight
+  # flips it is hard money. Switch `mode` to model the other.
+  financing:
+    mode: "owner_occupied"      # owner_occupied | hard_money | cash
+    owner_occupied:
+      down_payment_pct: 5.0     # 3.5% FHA / 5% conventional 2-4 unit
+      interest_rate_pct: 6.75
+      points_pct: 0.0
+      lender_fees: 2400
+      pmi_monthly: 380
+    hard_money:
+      down_payment_pct: 15.0
+      interest_rate_pct: 11.5
+      points_pct: 2.0
+      lender_fees: 1800
+      pmi_monthly: 0
+
+  # --- Holding (per month of hold_months) ---
+  holding:
+    # Property tax is computed from the JC rate below unless you override
+    # `taxes_monthly` on the listing itself.
+    jc_general_tax_rate: 2.335       # per $100 ASSESSED value (2025 certified)
+    jc_equalization_ratio: 0.7282    # 2026 ratio: assessed / market
+    insurance_monthly: 285           # builder's risk / vacant dwelling policy
+    utilities_monthly: 320
+    lawn_snow_monthly: 120
+    misc_monthly: 100
+
+  # --- Disposition (you are the seller) ---
+  selling:
+    agent_commission_pct: 5.0        # post-NAR-settlement JC is landing ~4.5-5%
+    seller_attorney: 2000
+    seller_concessions_pct: 1.0      # credits buyers ask for after inspection
+    staging_and_marketing: 3500
+    # Realty Transfer Fee + Graduated Percent Fee are computed automatically
+    # from the NJ schedule — do not add them here.
+
+# -----------------------------------------------------------------------------
+# DATA SOURCES — the screener is source-agnostic. Point it at whatever you have.
+# -----------------------------------------------------------------------------
+sources:
+  default: "csv"
+  csv:
+    path: "data/sample_listings.csv"
+  json:
+    path: "data/listings.json"
+
+# -----------------------------------------------------------------------------
+# COMPS / ARV — RentCast AVM
+# -----------------------------------------------------------------------------
+comps:
+  provider: "rentcast"
+  # API key comes from the RENTCAST_API_KEY environment variable (.env file).
+  # Never put the key in this file — this file is meant to be shareable.
+  comp_count: 12
+  max_radius_miles: 1.0
+  days_old: 270
+  # CompPool batches an area query once and reuses it for every subject
+  # property in that area — turns N API calls into 1.
+  use_pool: true
+  cache_hours: 24               # on-disk cache so re-runs are free
+
+# -----------------------------------------------------------------------------
+# ALERTING / OUTPUT
+# -----------------------------------------------------------------------------
+output:
+  dir: "out"
+  write_csv: true
+  write_xlsx: true
+  # Dedup state lives here. A deal already alerted on is not re-alerted unless
+  # its price changes by more than `realert_on_price_change_pct`.
+  state_file: "out/.seen_deals.json"
+  alert_verdicts: ["STRONG"]
+  realert_on_price_change_pct: 2.5
